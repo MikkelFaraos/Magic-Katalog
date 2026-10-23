@@ -1,0 +1,2 @@
+# Magic-Katalog
+Magic Katalog
