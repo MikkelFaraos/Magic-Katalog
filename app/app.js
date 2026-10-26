@@ -251,8 +251,61 @@ window.addEventListener("popstate", () => {
   overlayOpen = false;
   $("#overlay").hidden = true;
   $("#overlay").replaceChildren();
+  $("#overlay").style.backgroundColor = "";
   document.body.classList.remove("locked");
 });
+
+/**
+ * Pull the panel down to close it, like a sheet. Only a downward drag that starts while the
+ * overlay (and the set list, if under the finger) is scrolled to the top; otherwise it scrolls.
+ */
+function swipeToClose(ov) {
+  let downY = 0, startY = null, dy = 0, lastY = 0, dragging = false, t0 = 0;
+  const reset = () => { startY = null; dragging = false; };
+  ov.addEventListener("touchstart", e => {
+    const list = e.target.closest(".setlist");
+    if (e.touches.length > 1 || ov.scrollTop > 0 || (list && list.scrollTop > 0)) return reset();
+    downY = lastY = startY = e.touches[0].clientY;
+    t0 = e.timeStamp;
+    dy = 0;
+    dragging = false;
+  }, { passive: true });
+  ov.addEventListener("touchmove", e => {
+    if (startY === null) return;
+    lastY = e.touches[0].clientY;
+    dy = lastY - startY;
+    if (!dragging) {
+      if (dy < -4) return reset();  // going up: a normal scroll
+      if (dy < 10) return;
+      dragging = true;
+      startY += dy;  // start the panel from where the drag was recognised
+      dy = 0;
+    }
+    e.preventDefault();
+    const panel = ov.firstElementChild;
+    panel.style.transition = "none";
+    panel.style.transform = "translateY(" + Math.max(0, dy) + "px)";
+    ov.style.backgroundColor = "rgba(0,0,0," + (0.69 * Math.max(0.25, 1 - dy / 700)) + ")";
+  }, { passive: false });
+  const end = e => {
+    if (!dragging) return reset();
+    const panel = ov.firstElementChild;
+    // A flick counts from where the finger first went down, so short quick ones close too.
+    const total = lastY - downY, fast = total / Math.max(1, e.timeStamp - t0) > 0.5;  // px per ms
+    if (e.type === "touchend" && (dy > innerHeight * 0.15 || (fast && total > 60))) {
+      panel.style.transition = "transform .17s ease-in";
+      panel.style.transform = "translateY(100vh)";
+      setTimeout(closeOverlay, 160);
+    } else {
+      panel.style.transition = "transform .2s";
+      panel.style.transform = "";
+      ov.style.backgroundColor = "";
+    }
+    reset();
+  };
+  ov.addEventListener("touchend", end);
+  ov.addEventListener("touchcancel", end);
+}
 
 function backButton(label) {
   const b = el("button", "btn accent", label);
@@ -574,6 +627,7 @@ async function main() {
 
   new IntersectionObserver(entries => { if (entries[0].isIntersecting) loadMore(); }, { rootMargin: "800px" })
     .observe($("#more"));
+  swipeToClose($("#overlay"));
 
   loadCart();
   saveCart();

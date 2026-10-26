@@ -78,6 +78,12 @@
   @keyframes fade { from { opacity: 0; } }
   .panel { background: var(--card); border-radius: 20px; padding: 20px 18px; max-width: 760px; margin: 0 auto; }
   .panel h2 { font-size: 26px; margin: 4px 0 0; }
+  /* Grab handle: the panel can be pulled down to close it (touch screens). */
+  @media (pointer: coarse) {
+    .panel { position: relative; padding-top: 26px; }
+    .panel::before { content: ""; position: absolute; top: 9px; left: 50%; width: 40px; height: 5px; margin-left: -20px;
+                     border-radius: 3px; background: #ffffff40; }
+  }
   .kicker { color: var(--gold); font-weight: 700; font-size: 13px; letter-spacing: 1px; }
   .kicker.head { margin: 22px 0 6px; letter-spacing: 1.5px; }
   .detail .info { padding-top: 16px; }
