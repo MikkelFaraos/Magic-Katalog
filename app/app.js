@@ -327,8 +327,12 @@ function openDetail(c) {
   for (const cp of c.copies) info.appendChild(copyRow(c, cp));
   info.appendChild(el("p", "note", "Stand: Near Mint (NM) = som ny · Slightly Played (SP) = let brugt · "
     + "Moderately Played (MP) = brugt · Heavily Played (HP) = meget brugt."));
-  info.appendChild(backButton("‹  Tilbage"));
   panel.appendChild(info);
+  const x = el("button", "btn icon closex", "✕");  // swiping down or Back also closes it
+  x.type = "button";
+  x.setAttribute("aria-label", "Luk");
+  x.onclick = closeOverlay;
+  panel.appendChild(x);
   showOverlay(panel);
 }
 
