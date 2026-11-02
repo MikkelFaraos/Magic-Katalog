@@ -1,15 +1,13 @@
 // Magic-kort as a web app (iPhone and Android): the customer version of the Android app.
-// Searches and browses faraos.dk's Magic singles live, shows København's stock, and keeps a
+// Searches and browses faraos.dk's Magic singles live, shows the chosen store's stock, and keeps a
 // wish list ("kurv") on the phone with a QR code for staff. A port of MainActivity.java.
 "use strict";
 
-const STOCK_KEY = "kobenhavn", STORE_NAME = "København";
 const LIST_URL = "https://mikkelfaraos.github.io/Magic-Katalog/liste.html";  // staff list page behind the QR code
 const SCAN_LIMIT_PAGES = 125;  // browsing everything without search or set: stop after this many pages (8 cards each)
-const CART_KEY = "magic-cart";
+const CART_KEY = "magic-cart", STORE_KEY = "magic-store", LANG_KEY = "magic-lang";
 
-const COLOR_DA = { white: "Hvid", blue: "Blå", black: "Sort", red: "Rød", green: "Grøn", multi: "Flerfarvet",
-  colorless: "Farveløs", artifact: "Artefakt", land: "Land" };
+const STORES = [["kobenhavn", "København"], ["lyngby", "Lyngby"], ["odense", "Odense"], ["aarhus", "Aarhus"]];
 
 const $ = sel => document.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -18,6 +16,103 @@ const el = (tag, cls, text) => {
   if (text != null) e.textContent = text;
   return e;
 };
+
+const load = key => { try { return localStorage.getItem(key); } catch (e) { return null; } };
+const keep = (key, value) => { try { localStorage.setItem(key, value); } catch (e) { /* private mode: lasts this visit */ } };
+
+// ---------------------------------------------------------------- language (Danish / English)
+
+/** Phones set to Danish get Danish, everyone else English, until they pick one in the settings. */
+let lang = load(LANG_KEY) || (/^da\b/i.test((navigator.languages || [])[0] || navigator.language || "") ? "da" : "en");
+
+const TEXT = {
+  da: {
+    search: "Søg efter et kort", clearSearch: "Ryd søgning", cart: "Kurv", settings: "Indstillinger", close: "Luk",
+    hereChip: "✓ Kun på lager i butikken", allSets: "Alle sæt ▾", allColors: "Alle farver", loading: "Henter kort…",
+    scanning: (n, store, checked) => n + " kort på lager i " + store + "  ·  Gennemsøger webshoppen… " + checked + " kort tjekket",
+    noNet: "Ingen internetforbindelse.", fetchFailed: m => "Kunne ikke hente kort (" + m + ").",
+    shopAnswered: s => "webshoppen svarede " + s,
+    fetching: "Henter kort fra faraos.dk…", capped: n => "De nyeste " + n + " kort er gennemsøgt – vælg et sæt eller søg for at finde flere",
+    allShown: "Alle kort vist", scrollMore: "Rul ned for flere", count: n => n + " kort",
+    inStockAt: store => "på lager i " + store, wholeShop: "hele webshoppen",
+    emptyLoading: "Henter kort fra webshoppen…", emptyError: e => "Ingen forbindelse til webshoppen lige nu.\n" + e,
+    emptyHere: "Ingen kort på lager i butikken i denne visning.", emptyHereQuery: q => "Ingen kort med »" + q + "« på lager i butikken.",
+    emptyHereHint: "\nTryk på »Kun på lager i butikken« for at se hele webshoppen – kortene kan bestilles online.",
+    emptyAll: "Ingen kort i denne visning.", emptyAllQuery: q => "Ingen kort fundet for »" + q + "«.",
+    badgeMany: n => "● På lager i butikken (" + n + ")", badgeFew: n => "● Kun " + n + " tilbage i butikken",
+    badgeOnline: "● Ikke i butikken – kan bestilles online", badgeSoldOut: "● Udsolgt",
+    shortMany: "På lager", shortFew: "Få tilbage", shortOnline: "Online", shortSoldOut: "Udsolgt",
+    inStore: n => n + " i butikken", from: "fra ", versions: "UDGAVER OG PRISER", card: "Kort",
+    conditions: "Stand: Near Mint (NM) = som ny · Slightly Played (SP) = let brugt · "
+      + "Moderately Played (MP) = brugt · Heavily Played (HP) = meget brugt.",
+    allInCart: "✓ Alle i kurven", oneMore: n => "+ Én mere (" + n + ")", addToCart: "+ Læg i kurv",
+    yourCart: "Din kurv", closeCart: "Luk kurven",
+    cartHow: "Gå til kassen og vis denne liste til personalet – så finder de kortene frem til dig.",
+    cartEmpty: "Kurven er tom.\nÅbn et kort og tryk »+ Læg i kurv« ud for den udgave, du vil have.",
+    total: (sum, n) => "I alt: " + sum + "   (" + n + " kort)", emptyCart: "Tøm kurv", emptyCartAsk: "Tøm kurven?",
+    seeMore: "‹  Se flere kort", itemNo: "Varenr.",
+    chooseSet: "Vælg sæt", findSet: "Skriv for at finde et sæt…", cancel: "Annuller",
+    installIos: "Få Magic-kort som app: tryk på Del-knappen ⬆︎ og vælg »Føj til hjemmeskærm«.",
+    installAndroid: "Få Magic-kort som app på din telefon.", install: "Installer",
+    startFailed: m => "Appen kunne ikke starte: " + m + "\nPrøv at genindlæse siden.",
+    language: "SPROG", store: "BUTIK",
+    storeNote: "Lageret vises for den butik, du vælger. Kurven gælder også kun den butik.",
+    switchStoreAsk: (from, to) => "Din kurv er til butikken i " + from + ". Tøm kurven og skift til " + to + "?",
+    colors: { white: "Hvid", blue: "Blå", black: "Sort", red: "Rød", green: "Grøn", multi: "Flerfarvet",
+      colorless: "Farveløs", artifact: "Artefakt", land: "Land" },
+  },
+  en: {
+    search: "Search for a card", clearSearch: "Clear search", cart: "Basket", settings: "Settings", close: "Close",
+    hereChip: "✓ In stock in the store only", allSets: "All sets ▾", allColors: "All colours", loading: "Loading cards…",
+    scanning: (n, store, checked) => n + " cards in stock in " + store + "  ·  Searching the web shop… " + checked + " cards checked",
+    noNet: "No internet connection.", fetchFailed: m => "Couldn't load cards (" + m + ").",
+    shopAnswered: s => "the web shop answered " + s,
+    fetching: "Loading cards from faraos.dk…", capped: n => "The newest " + n + " cards were searched – pick a set or search to find more",
+    allShown: "All cards shown", scrollMore: "Scroll down for more", count: n => n + (n === 1 ? " card" : " cards"),
+    inStockAt: store => "in stock in " + store, wholeShop: "the whole web shop",
+    emptyLoading: "Loading cards from the web shop…", emptyError: e => "No connection to the web shop right now.\n" + e,
+    emptyHere: "No cards in stock in the store in this view.", emptyHereQuery: q => "No cards matching “" + q + "” in stock in the store.",
+    emptyHereHint: "\nTap “In stock in the store only” to see the whole web shop – those cards can be ordered online.",
+    emptyAll: "No cards in this view.", emptyAllQuery: q => "No cards found for “" + q + "”.",
+    badgeMany: n => "● In stock in the store (" + n + ")", badgeFew: n => "● Only " + n + " left in the store",
+    badgeOnline: "● Not in the store – can be ordered online", badgeSoldOut: "● Sold out",
+    shortMany: "In stock", shortFew: "Few left", shortOnline: "Online", shortSoldOut: "Sold out",
+    inStore: n => n + " in store", from: "from ", versions: "VERSIONS AND PRICES", card: "Card",
+    conditions: "Condition: Near Mint (NM) = like new · Slightly Played (SP) = lightly used · "
+      + "Moderately Played (MP) = used · Heavily Played (HP) = heavily used.",
+    allInCart: "✓ All in basket", oneMore: n => "+ One more (" + n + ")", addToCart: "+ Add to basket",
+    yourCart: "Your basket", closeCart: "Close basket",
+    cartHow: "Go to the counter and show this list to the staff – they'll get the cards for you.",
+    cartEmpty: "The basket is empty.\nOpen a card and tap “+ Add to basket” next to the version you want.",
+    total: (sum, n) => "Total: " + sum + "   (" + n + (n === 1 ? " card)" : " cards)"), emptyCart: "Empty basket",
+    emptyCartAsk: "Empty the basket?", seeMore: "‹  See more cards", itemNo: "Item no.",
+    chooseSet: "Choose a set", findSet: "Type to find a set…", cancel: "Cancel",
+    installIos: "Get Magic-kort as an app: tap the Share button ⬆︎ and choose “Add to Home Screen”.",
+    installAndroid: "Get Magic-kort as an app on your phone.", install: "Install",
+    startFailed: m => "The app couldn't start: " + m + "\nTry reloading the page.",
+    language: "LANGUAGE", store: "STORE",
+    storeNote: "Stock is shown for the store you choose. The basket is for that store only.",
+    switchStoreAsk: (from, to) => "Your basket is for the " + from + " store. Empty it and switch to " + to + "?",
+    colors: { white: "White", blue: "Blue", black: "Black", red: "Red", green: "Green", multi: "Multicolour",
+      colorless: "Colourless", artifact: "Artifact", land: "Land" },
+  },
+};
+
+/** A text in the current language; texts with numbers or names in them are functions. */
+function t(key, ...args) {
+  const v = TEXT[lang][key];
+  return typeof v === "function" ? v(...args) : v;
+}
+
+/** The shop names the colour chips in Danish; show them in English when English is picked. */
+const COLOR_TITLE_EN = { Hvid: "White", "Blå": "Blue", Sort: "Black", "Rød": "Red", "Grøn": "Green", Flerfarvet: "Multicolour",
+  "Farveløs": "Colourless", Artefakt: "Artifact" };
+const colorTitle = title => lang === "en" && COLOR_TITLE_EN[title] || title;
+
+// ---------------------------------------------------------------- store
+
+let storeKeyHere = STORES.some(s => s[0] === load(STORE_KEY)) ? load(STORE_KEY) : "kobenhavn";
+const storeName = key => (STORES.find(s => s[0] === key) || [key, key])[1];
 
 // ---------------------------------------------------------------- data from magic.json
 
@@ -46,7 +141,7 @@ let generation = 0, nextSubPage = 0, loading = false, exhausted = false, lastErr
 let shown = [];
 
 /** København's stock is the web shop's own ("online") stock, so its "På lager" filter fits. */
-const useShopStockFilter = () => onlyHere && query === "";
+const useShopStockFilter = () => onlyHere && query === "" && storeKeyHere === "kobenhavn";
 
 function body(subPage) {
   const b = structuredClone(template);
@@ -66,7 +161,7 @@ function body(subPage) {
 
 async function post(b) {
   const r = await fetch(apiUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
-  if (!r.ok) throw new Error("webshoppen svarede " + r.status);
+  if (!r.ok) throw new Error(t("shopAnswered", r.status));
   return r.json();
 }
 
@@ -84,8 +179,9 @@ function startQuery() {
 }
 
 /**
- * Fetch the next pages (8 cards each). With a search the app filters København's stock itself:
- * it fetches 4 pages side by side, up to 24 per round, until a dozen matches are found.
+ * Fetch the next pages (8 cards each). When the app filters a store's stock itself (any store
+ * but København, or København with a search) it fetches 4 pages side by side, up to 24 per
+ * round, until a dozen matches are found.
  */
 async function loadMore() {
   if (loading || exhausted) return;
@@ -110,12 +206,11 @@ async function loadMore() {
         }
       }
       if (gen !== generation) return;  // a newer query took over
-      if (scan) $("#status").textContent = (shown.length + found.length) + " kort på lager i " + STORE_NAME
-        + "  ·  Gennemsøger webshoppen… " + (startSub + pages) * 8 + " kort tjekket";
+      if (scan) $("#status").textContent = t("scanning", shown.length + found.length, storeName(storeKeyHere), (startSub + pages) * 8);
       if (capped && startSub + pages >= SCAN_LIMIT_PAGES) { end = true; break; }
     }
   } catch (e) {
-    err = navigator.onLine === false ? "Ingen internetforbindelse." : "Kunne ikke hente kort (" + e.message + ").";
+    err = navigator.onLine === false ? t("noNet") : t("fetchFailed", e.message);
   }
   if (gen !== generation) return;
   loading = false;
@@ -141,12 +236,12 @@ function parseCard(it) {
   const menu = it.menuPath || "";
   const c = {
     id: it.itemNumber, name: it.displayName || "", set: it.displayName2 || "", img: it.imagePath || "",
-    color: COLOR_DA[menu.substring(menu.lastIndexOf("/") + 1)] || "",
+    color: menu.substring(menu.lastIndexOf("/") + 1),  // e.g. "red"; shown via t("colors")
     soldOut: !!st.isSoldOut, price: st.onSalePrice ? st.onSalePrice.price : normal, here: 0, online: 0, copies: [],
   };
   for (const o of st.inventories || []) {
     const k = storeKey(o.location);
-    if (k === STOCK_KEY) c.here += Math.max(0, o.stock);
+    if (k === storeKeyHere) c.here += Math.max(0, o.stock);
     if (k === "online") c.online += Math.max(0, o.stock);
   }
   let cheapestHere = Infinity;
@@ -159,7 +254,7 @@ function parseCard(it) {
     const cp = { condition: o.name || "", extra: extra.join(" · "), price: pr ? pr.price : c.price, here: 0, online: 0 };
     for (const x of o.inventories || []) {
       const k = storeKey(x.location);
-      if (k === STOCK_KEY) cp.here += Math.max(0, x.stock);
+      if (k === storeKeyHere) cp.here += Math.max(0, x.stock);
       if (k === "online") cp.online += Math.max(0, x.stock);
     }
     if (cp.here > 0) cheapestHere = Math.min(cheapestHere, cp.price);
@@ -174,30 +269,29 @@ function parseCard(it) {
 function updateStatus() {
   const capped = exhausted && onlyHere && !useShopStockFilter() && query === "" && !currentSet && nextSubPage >= SCAN_LIMIT_PAGES;
   let state;
-  if (loading) state = "Henter kort fra faraos.dk…";
+  if (loading) state = t("fetching");
   else if (lastError) state = "⚠ " + lastError;
-  else if (capped) state = "De nyeste " + scanned + " kort er gennemsøgt – vælg et sæt eller søg for at finde flere";
-  else if (exhausted) state = "Alle kort vist";
-  else state = "Rul ned for flere";
-  $("#status").textContent = shown.length + " kort · " + (onlyHere ? "på lager i " + STORE_NAME : "hele webshoppen") + "  ·  " + state;
+  else if (capped) state = t("capped", scanned);
+  else if (exhausted) state = t("allShown");
+  else state = t("scrollMore");
+  $("#status").textContent = t("count", shown.length) + " · " + (onlyHere ? t("inStockAt", storeName(storeKeyHere)) : t("wholeShop"))
+    + "  ·  " + state;
 
   const empty = $("#empty");
   empty.hidden = shown.length > 0;
-  if (loading) empty.textContent = "Henter kort fra webshoppen…";
-  else if (lastError) empty.textContent = "Ingen forbindelse til webshoppen lige nu.\n" + lastError;
-  else if (onlyHere) empty.textContent = (query === "" ? "Ingen kort på lager i butikken i denne visning."
-    : "Ingen kort med »" + query + "« på lager i butikken.")
-    + "\nTryk på »Kun på lager i butikken« for at se hele webshoppen – kortene kan bestilles online.";
-  else empty.textContent = query === "" ? "Ingen kort i denne visning." : "Ingen kort fundet for »" + query + "«.";
+  if (loading) empty.textContent = t("emptyLoading");
+  else if (lastError) empty.textContent = t("emptyError", lastError);
+  else if (onlyHere) empty.textContent = (query === "" ? t("emptyHere") : t("emptyHereQuery", query)) + t("emptyHereHint");
+  else empty.textContent = query === "" ? t("emptyAll") : t("emptyAllQuery", query);
 }
 
 // ---------------------------------------------------------------- tiles and badges
 
 function badge(here, online, soldOut, long) {
-  if (here > 2) return [long ? "● På lager i butikken (" + here + ")" : "På lager", "green"];
-  if (here > 0) return [long ? "● Kun " + here + " tilbage i butikken" : "Få tilbage", "amber"];
-  if (online > 0) return [long ? "● Ikke i butikken – kan bestilles online" : "Online", "grey"];
-  return [long ? "● Udsolgt" : "Udsolgt", "red"];
+  if (here > 2) return [long ? t("badgeMany", here) : t("shortMany"), "green"];
+  if (here > 0) return [long ? t("badgeFew", here) : t("shortFew"), "amber"];
+  if (online > 0) return [long ? t("badgeOnline") : t("shortOnline"), "grey"];
+  return [long ? t("badgeSoldOut") : t("shortSoldOut"), "red"];
 }
 
 /** The card picture, cropped to the card's own shape (the shop's pictures have white bars). */
@@ -216,21 +310,21 @@ function cardPic(url, cls) {
 }
 
 function tile(c) {
-  const t = el("button", "tile");
-  t.type = "button";
-  t.appendChild(cardPic(c.img));
-  t.appendChild(el("div", "name", c.name));
-  t.appendChild(el("div", "set", c.set));
+  const t_ = el("button", "tile");
+  t_.type = "button";
+  t_.appendChild(cardPic(c.img));
+  t_.appendChild(el("div", "name", c.name));
+  t_.appendChild(el("div", "set", c.set));
   const row = el("div", "row");
-  row.appendChild(el("span", "price", (c.copies.length > 1 ? "fra " : "") + money(c.price)));
+  row.appendChild(el("span", "price", (c.copies.length > 1 ? t("from") : "") + money(c.price)));
   const [text, color] = badge(c.here, c.online, c.soldOut, false);
   row.appendChild(el("span", "badge " + color, text));
-  t.appendChild(row);
-  t.onclick = () => openDetail(c);
-  return t;
+  t_.appendChild(row);
+  t_.onclick = () => openDetail(c);
+  return t_;
 }
 
-// ---------------------------------------------------------------- overlays (card page, cart, set picker)
+// ---------------------------------------------------------------- overlays (card page, cart, set picker, settings)
 
 /** Overlays get a history entry, so the phone's Back button / swipe closes them. */
 let overlayOpen = false;
@@ -317,24 +411,30 @@ function backButton(label) {
   return b;
 }
 
+function closeX(label) {
+  const x = el("button", "btn icon", "✕");
+  x.type = "button";
+  x.setAttribute("aria-label", label);
+  x.onclick = closeOverlay;
+  return x;
+}
+
 function openDetail(c) {
   const panel = el("div", "panel detail");
   panel.appendChild(cardPic(c.img.replace("/medium/", "/large/"), "big"));
   const info = el("div", "info");
-  info.appendChild(el("div", "kicker", (c.set + (c.color ? "  ·  " + c.color : "")).toUpperCase()));
+  const color = t("colors")[c.color] || "";
+  info.appendChild(el("div", "kicker", (c.set + (color ? "  ·  " + color : "")).toUpperCase()));
   info.appendChild(el("h2", null, c.name));
-  const [text, color] = badge(c.here, c.online, c.soldOut, true);
-  info.appendChild(el("div", "badge big " + color, text));
-  info.appendChild(el("div", "kicker head", "UDGAVER OG PRISER"));
+  const [text, cls] = badge(c.here, c.online, c.soldOut, true);
+  info.appendChild(el("div", "badge big " + cls, text));
+  info.appendChild(el("div", "kicker head", t("versions")));
   if (c.copies.length === 0) info.appendChild(el("div", "price", money(c.price)));
   for (const cp of c.copies) info.appendChild(copyRow(c, cp));
-  info.appendChild(el("p", "note", "Stand: Near Mint (NM) = som ny · Slightly Played (SP) = let brugt · "
-    + "Moderately Played (MP) = brugt · Heavily Played (HP) = meget brugt."));
+  info.appendChild(el("p", "note", t("conditions")));
   panel.appendChild(info);
-  const x = el("button", "btn icon closex", "✕");  // swiping down or Back also closes it
-  x.type = "button";
-  x.setAttribute("aria-label", "Luk");
-  x.onclick = closeOverlay;
+  const x = closeX(t("close"));  // swiping down or Back also closes it
+  x.classList.add("closex");
   panel.appendChild(x);
   showOverlay(panel);
 }
@@ -343,7 +443,7 @@ function copyRow(card, cp) {
   const row = el("div", "copy" + (cp.here > 0 ? "" : " dim"));
   const top = el("div", "line");
   const left = el("div", "grow");
-  left.appendChild(el("div", "cond", cp.condition || "Kort"));
+  left.appendChild(el("div", "cond", cp.condition || t("card")));
   if (cp.extra) left.appendChild(el("div", "extra", cp.extra));
   top.appendChild(left);
   top.appendChild(el("div", "price", money(cp.price)));
@@ -351,14 +451,14 @@ function copyRow(card, cp) {
   const bottom = el("div", "line");
   const [text, color] = badge(cp.here, cp.online, false, false);
   // How many of this copy the store has, so the customer knows how many they can take.
-  bottom.appendChild(el("div", "badge grow " + color, cp.here > 0 ? cp.here + " i butikken" : text));
+  bottom.appendChild(el("div", "badge grow " + color, cp.here > 0 ? t("inStore", cp.here) : text));
   // Only copies that are physically in the store can go in the cart.
   if (cp.here > 0) {
     const add = el("button", "btn small");
     add.type = "button";
     const label = () => {
       const n = qtyInCart(card, cp), full = n >= cp.here;
-      add.textContent = full ? "✓ Alle i kurven" : n > 0 ? "+ Én mere (" + n + ")" : "+ Læg i kurv";
+      add.textContent = full ? t("allInCart") : n > 0 ? t("oneMore", n) : t("addToCart");
       add.classList.toggle("accent", !full);
       add.disabled = full;
     };
@@ -376,14 +476,14 @@ function copyRow(card, cp) {
 
 // ---------------------------------------------------------------- cart (a wish list for the counter)
 
-let cart = [];  // {card:{id,name,set,img}, copy:{condition,extra,price,here}, qty}
+let cart = [];  // {card:{id,name,set,img}, copy:{condition,extra,price,here}, qty} – for storeKeyHere only
 
 function loadCart() {
-  try { cart = JSON.parse(localStorage.getItem(CART_KEY) || "[]"); } catch (e) { cart = []; }
+  try { cart = JSON.parse(load(CART_KEY) || "[]"); } catch (e) { cart = []; }
 }
 
 function saveCart() {
-  try { localStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch (e) { /* private mode: cart lasts this visit */ }
+  keep(CART_KEY, JSON.stringify(cart));
   const n = cartCount();
   const b = $("#cartBtn");
   b.querySelector(".count").textContent = n ? String(n) : "";
@@ -408,14 +508,10 @@ function addToCart(c, cp) {
 function openCart() {
   const panel = el("div", "panel cart");
   const top = el("div", "line");
-  top.appendChild(el("h2", "grow", "Din kurv"));
-  const x = el("button", "btn icon", "✕");
-  x.type = "button";
-  x.setAttribute("aria-label", "Luk kurven");
-  x.onclick = closeOverlay;
-  top.appendChild(x);
+  top.appendChild(el("h2", "grow", t("yourCart")));
+  top.appendChild(closeX(t("closeCart")));
   panel.appendChild(top);
-  panel.appendChild(el("p", "how", "Gå til kassen og vis denne liste til personalet – så finder de kortene frem til dig."));
+  panel.appendChild(el("p", "how", t("cartHow")));
   const lines = el("div", "lines");
   const qrBox = el("div", "qrbox");
   const canvas = el("canvas");
@@ -423,12 +519,11 @@ function openCart() {
   const total = el("div", "total");
   const redraw = () => {
     lines.replaceChildren();
-    if (cart.length === 0) lines.appendChild(el("p", "emptycart",
-      "Kurven er tom.\nÅbn et kort og tryk »+ Læg i kurv« ud for den udgave, du vil have."));
+    if (cart.length === 0) lines.appendChild(el("p", "emptycart", t("cartEmpty")));
     for (const l of cart) lines.appendChild(cartRow(l, redraw));
     qrBox.hidden = cart.length === 0;
     if (cart.length) cartLink().then(link => drawQr(canvas, link));
-    total.textContent = "I alt: " + money(cartTotal()) + "   (" + cartCount() + " kort)";
+    total.textContent = t("total", money(cartTotal()), cartCount());
     saveCart();
   };
   redraw();
@@ -436,11 +531,11 @@ function openCart() {
   panel.appendChild(qrBox);
   panel.appendChild(total);
   const buttons = el("div", "buttons");
-  const clear = el("button", "btn", "Tøm kurv");
+  const clear = el("button", "btn", t("emptyCart"));
   clear.type = "button";
-  clear.onclick = () => { if (cart.length && confirm("Tøm kurven?")) { cart = []; redraw(); } };
+  clear.onclick = () => { if (cart.length && confirm(t("emptyCartAsk"))) { cart = []; redraw(); } };
   buttons.appendChild(clear);
-  buttons.appendChild(backButton("‹  Se flere kort"));
+  buttons.appendChild(backButton(t("seeMore")));
   panel.appendChild(buttons);
   showOverlay(panel);
 }
@@ -451,7 +546,8 @@ function cartRow(l, redraw) {
   const mid = el("div", "grow");
   mid.appendChild(el("div", "name", l.card.name));
   mid.appendChild(el("div", "set", l.card.set));
-  mid.appendChild(el("div", "copyline", l.copy.condition + (l.copy.extra ? "  ·  " + l.copy.extra : "") + "   ·   Varenr. " + l.card.id));
+  mid.appendChild(el("div", "copyline", l.copy.condition + (l.copy.extra ? "  ·  " + l.copy.extra : "") + "   ·   "
+    + t("itemNo") + " " + l.card.id));
   const controls = el("div", "line");
   const minus = el("button", "btn round", "−");
   minus.type = "button";
@@ -470,7 +566,7 @@ function cartRow(l, redraw) {
 async function cartLink() {
   const items = cart.map(l => [l.card.id, l.card.name, l.card.set, l.copy.condition, l.copy.extra, l.qty, l.copy.price]);
   const d = new Date();
-  const json = JSON.stringify({ s: STORE_NAME, t: d.getDate() + "/" + (d.getMonth() + 1) + " kl. "
+  const json = JSON.stringify({ s: storeName(storeKeyHere), t: d.getDate() + "/" + (d.getMonth() + 1) + " kl. "
     + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"), i: items });
   try {
     const stream = new Blob([json]).stream().pipeThrough(new CompressionStream("deflate-raw"));
@@ -508,10 +604,10 @@ function chooseSet() {
     return;
   }
   const panel = el("div", "panel sets");
-  panel.appendChild(el("h2", null, "Vælg sæt"));
+  panel.appendChild(el("h2", null, t("chooseSet")));
   const filter = el("input", "field");
   filter.type = "search";
-  filter.placeholder = "Skriv for at finde et sæt…";
+  filter.placeholder = t("findSet");
   panel.appendChild(filter);
   const list = el("div", "setlist");
   const fill = () => {
@@ -543,11 +639,12 @@ function chooseSet() {
   filter.oninput = fill;
   fill();
   panel.appendChild(list);
-  panel.appendChild(backButton("Annuller"));
+  panel.appendChild(backButton(t("cancel")));
   showOverlay(panel);
 }
 
 function refreshChips() {
+  $("#hereChip").textContent = t("hereChip");
   $("#hereChip").classList.toggle("accent", onlyHere);
   const sc = $("#setChip");
   sc.replaceChildren();
@@ -557,7 +654,7 @@ function refreshChips() {
     img.src = "sets/" + currentSet.id + ".png";
     sc.appendChild(img);
   }
-  sc.appendChild(document.createTextNode(currentSet ? currentSet.title + "  ✕" : "Alle sæt ▾"));
+  sc.appendChild(document.createTextNode(currentSet ? currentSet.title + "  ✕" : t("allSets")));
   sc.classList.toggle("accent", !!currentSet);
   const colors = $("#colors");
   colors.replaceChildren();
@@ -569,34 +666,106 @@ function refreshChips() {
     c.onclick = () => { colorId = id; refreshChips(); startQuery(); };
     colors.appendChild(c);
   };
-  chip("Alle farver", 0);
-  for (const c of currentSet.colors || []) chip(c.title, c.id);
+  chip(t("allColors"), 0);
+  for (const c of currentSet.colors || []) chip(colorTitle(c.title), c.id);
+}
+
+// ---------------------------------------------------------------- settings (language and store)
+
+/** Texts that are in the page itself rather than made by the code. */
+function applyLanguage() {
+  document.documentElement.lang = lang;
+  $("#storeLine").textContent = "Faraos Cigarer · " + storeName(storeKeyHere);
+  const search = $("#search");
+  search.placeholder = t("search");
+  search.setAttribute("aria-label", t("search"));
+  $("#clearBtn").setAttribute("aria-label", t("clearSearch"));
+  $("#settingsBtn").setAttribute("aria-label", t("settings"));
+  $("#cartBtn").setAttribute("aria-label", t("cart"));
+  $("#install .go").textContent = t("install");
+  $("#install .x").setAttribute("aria-label", t("close"));
+  refreshChips();
+}
+
+function openSettings() {
+  const panel = el("div", "panel settings");
+  const top = el("div", "line");
+  top.appendChild(el("h2", "grow", t("settings")));
+  top.appendChild(closeX(t("close")));
+  panel.appendChild(top);
+
+  // Each language is named in its own language, so it can be found whichever is showing.
+  panel.appendChild(el("div", "kicker head", t("language")));
+  const segment = el("div", "segment");
+  for (const [code, name] of [["da", "Dansk"], ["en", "English"]]) {
+    const b = el("button", "btn" + (lang === code ? " accent" : ""), name);
+    b.type = "button";
+    b.onclick = () => {
+      if (lang === code) return;
+      lang = code;
+      keep(LANG_KEY, lang);
+      applyLanguage();
+      redrawCards();
+      openSettings();  // the panel itself in the new language
+    };
+    segment.appendChild(b);
+  }
+  panel.appendChild(segment);
+
+  panel.appendChild(el("div", "kicker head", t("store")));
+  const list = el("div", "storelist");
+  for (const [key, name] of STORES) {
+    const row = el("button", "setrow" + (key === storeKeyHere ? " on" : ""));
+    row.type = "button";
+    row.append(el("span", null, "Faraos Cigarer · " + name), el("span", "tick", key === storeKeyHere ? "✓" : ""));
+    row.onclick = () => {
+      if (key === storeKeyHere) return closeOverlay();
+      // The cart's cards and amounts are this store's stock, so it can't come along.
+      if (cart.length && !confirm(t("switchStoreAsk", storeName(storeKeyHere), name))) return;
+      cart = [];
+      saveCart();
+      storeKeyHere = key;
+      keep(STORE_KEY, key);
+      applyLanguage();
+      closeOverlay();
+      startQuery();
+    };
+    list.appendChild(row);
+  }
+  panel.appendChild(list);
+  panel.appendChild(el("p", "note", t("storeNote")));
+  showOverlay(panel);
+}
+
+/** The cards already on screen, again, with their texts in the current language. */
+function redrawCards() {
+  const grid = $("#grid");
+  grid.replaceChildren(...shown.map(tile));
+  updateStatus();
 }
 
 // ---------------------------------------------------------------- install hint ("add to home screen")
 
 function installHint() {
   const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
-  let dismissed = false;
-  try { dismissed = localStorage.getItem("magic-install-hint") === "no"; } catch (e) { /* ignore */ }
-  if (standalone || dismissed) return;
+  if (standalone || load("magic-install-hint") === "no") return;
   const bar = $("#install");
   const text = bar.querySelector(".text"), go = bar.querySelector(".go");
   const hide = () => {
     bar.hidden = true;
-    try { localStorage.setItem("magic-install-hint", "no"); } catch (e) { /* ignore */ }
+    keep("magic-install-hint", "no");
   };
   bar.querySelector(".x").onclick = hide;
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   if (ios) {
-    text.textContent = "Få Magic-kort som app: tryk på Del-knappen ⬆︎ og vælg »Føj til hjemmeskærm«.";
+    text.textContent = t("installIos");
     go.hidden = true;
     bar.hidden = false;
   }
   // Android/Chrome: the browser offers its own install dialog.
   window.addEventListener("beforeinstallprompt", e => {
     e.preventDefault();
-    text.textContent = "Få Magic-kort som app på din telefon.";
+    text.textContent = t("installAndroid");
     go.hidden = false;
     go.onclick = async () => { e.prompt(); await e.userChoice; hide(); };
     bar.hidden = false;
@@ -607,6 +776,7 @@ function installHint() {
 // ---------------------------------------------------------------- start
 
 async function main() {
+  $("#status").textContent = t("loading");
   const d = await (await fetch("magic.json")).json();
   apiUrl = d.url;
   template = d.template;
@@ -630,6 +800,8 @@ async function main() {
   $("#searchForm").addEventListener("submit", e => { e.preventDefault(); runSearch(); search.blur(); });
   $("#clearBtn").onclick = () => { search.value = ""; runSearch(); };
   $("#cartBtn").onclick = openCart;
+  $("#settingsBtn").onclick = openSettings;
+  $("#storeLine").onclick = openSettings;
   $("#hereChip").onclick = () => { onlyHere = !onlyHere; refreshChips(); startQuery(); };
   $("#setChip").onclick = chooseSet;
 
@@ -639,7 +811,7 @@ async function main() {
 
   loadCart();
   saveCart();
-  refreshChips();
+  applyLanguage();
   installHint();
   startQuery();
 }
@@ -647,5 +819,5 @@ async function main() {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => { /* works without it */ });
 main().catch(e => {
   $("#empty").hidden = false;
-  $("#empty").textContent = "Appen kunne ikke starte: " + e.message + "\nPrøv at genindlæse siden.";
+  $("#empty").textContent = t("startFailed", e.message);
 });
