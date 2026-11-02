@@ -58,6 +58,9 @@ function body(subPage) {
   b.searchString = query || null;
   b.filter = useShopStockFilter() ? inStockFilter : null;
   b.subPage = subPage;
+  // Same cards, but the shop skips the filter menu and totals it adds to the first page:
+  // that page comes back in ~0.3 s instead of ~2.5 s.
+  b.inSearchDialog = true;
   return b;
 }
 
@@ -347,7 +350,8 @@ function copyRow(card, cp) {
   row.appendChild(top);
   const bottom = el("div", "line");
   const [text, color] = badge(cp.here, cp.online, false, false);
-  bottom.appendChild(el("div", "badge grow " + color, text));
+  // How many of this copy the store has, so the customer knows how many they can take.
+  bottom.appendChild(el("div", "badge grow " + color, cp.here > 0 ? cp.here + " i butikken" : text));
   // Only copies that are physically in the store can go in the cart.
   if (cp.here > 0) {
     const add = el("button", "btn small");
